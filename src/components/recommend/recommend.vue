@@ -6,8 +6,8 @@
           <div class="slider-content">
             <slider ref="slider">
               <div v-for="(item,index) in banners" :key="index">
-                <a :href="item.linkUrl">
-                  <img @load="loadImage" :src="item.picUrl">
+                <a href="javascript:void(0);">
+                  <img @load="loadImage" :src="item.imageUrl">
                 </a>
               </div>
             </slider>
@@ -122,7 +122,7 @@
         position: relative
         width: 100%
         height: 0
-        padding-top: 40%
+        padding-top: 37%
         overflow: hidden
         .slider-content
           position: absolute
