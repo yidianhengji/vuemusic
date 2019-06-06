@@ -38,21 +38,27 @@
             <span class="dot"></span>
           </div>
           <div class="progress-wrapper">
-            <span class="time time-l">01</span>
-            <div class="progress-bar-wrapper"></div>
-            <span class="time time-r">3.40</span>
+            <span class="time time-l">{{format(currentTime)}}</span>
+            <div class="progress-bar-wrapper">
+              <progress-bar ref="progressBar"
+                            :percent="percent"
+                            @percentChange="onProgressBarChange"
+                            @percentChanging="onProgressBarChanging"
+              ></progress-bar>
+            </div>
+            <span class="time time-r">{{format(totalTime)}}</span>
           </div>
           <div class="operators">
-            <div class="icon i-left">
-              <i class="iconMode"></i>
+            <div class="icon i-left" @click="changeMode" :class="disableCls">
+              <i :class="iconMode"></i>
             </div>
-            <div class="icon i-left">
+            <div class="icon i-left" :class="disableCls">
               <i @click="prev" class="icon-prev"></i>
             </div>
-            <div class="icon i-center">
+            <div class="icon i-center" :class="disableCls">
               <i :class="playIcon" @click="togglePlaying"></i>
             </div>
-            <div class="icon i-right">
+            <div class="icon i-right" :class="disableCls">
               <i @click="next" class="icon-next"></i>
             </div>
             <div class="icon i-right">
@@ -74,14 +80,16 @@
           <p class="desc" v-html="currentSong.al.name"></p>
         </div>
         <div class="control">
-          <i @click.stop="togglePlaying" :class="miniIcon"></i>
+          <progress-circle :radius="radius" :percent="percent">
+            <i @click.stop="togglePlaying" class="icon-mini" :class="miniIcon"></i>
+          </progress-circle>
         </div>
         <div class="control">
           <i class="icon-playlist"></i>
         </div>
       </div>
     </transition>
-    <audio ref="audio" @playing="ready" @error="error"></audio>
+    <audio ref="audio" @playing="ready" @error="error" @timeupdate="updateTime"></audio>
   </div>
 </template>
 
@@ -91,14 +99,23 @@
   import { mapGetters, mapMutations } from 'vuex'
   import animations from 'create-keyframe-animation'
   import { prefixStyle } from 'common/js/dom'
+  import ProgressBar from 'base/progress-bar/progress-bar'
+  import ProgressCircle from 'base/progress-circle/progress-circle'
+  import { playMode } from 'common/js/config'
 
   const transform = prefixStyle('transform')
 
   export default {
+    components: {
+      ProgressBar,
+      ProgressCircle
+    },
     data() {
       return {
-        songReady: false,
-        url: ''
+        radius: 32,
+        totalTime: 0,
+        currentTime: 0,
+        songReady: false
       }
     },
     computed: {
@@ -111,12 +128,23 @@
       miniIcon () {
         return this.playing ? 'icon-pause-mini' : 'icon-play-mini'
       },
+      iconMode () {
+        return this.mode === playMode.sequence ? 'icon-sequence' : this.mode === playMode.loop ? 'icon-loop' : 'icon-random'
+      },
+      disableCls () {
+        return this.songReady ? '' : 'disable'
+      },
+      percent() {
+        return this.currentTime / this.totalTime
+      },
       ...mapGetters([
         'playlist',
         'currentSong',
         'currentIndex',
         'fullScreen',
-        'playing'
+        'playing',
+        'mode',
+        'sequenceList'
       ])
     },
     created() {
@@ -125,6 +153,22 @@
       }
     },
     methods: {
+      changeMode() {
+        const mode = (this.mode + 1) % 3
+        this.setPlayMode(mode)
+      },
+      /* A 进度条 */
+      onProgressBarChanging(percent) {
+        this.currentTime = this.totalTime * percent
+      },
+      onProgressBarChange(percent) {
+        const currentTime = this.totalTime * percent
+        this.currentTime = this.$refs.audio.currentTime = currentTime
+        if (!this.playing) {
+          this.togglePlaying()
+        }
+      },
+      /* B 进度条 */
       // 获取音乐的地址
       _getSongUrl() {
         let params = {
@@ -133,9 +177,17 @@
         let that = this
         getSongUrl(params).then((res) => {
           if (res.data.code === ERR_OK) {
-            that.url = res.data.data[0].url
-            that.$refs.audio.src = that.url
-            that.$refs.audio.play()
+            let url = res.data.data[0].url
+            if (url) {
+              this.$nextTick(() => {
+                that.$refs.audio.src = url
+                that.$refs.audio.play()
+              })
+              that.$refs.audio.addEventListener('loadedmetadata', function () {
+                let _this = this
+                that.totalTime = _this.duration
+              })
+            }
           }
         })
       },
@@ -178,6 +230,25 @@
       // 音乐读取失败的时候
       error() {
         this.songReady = true
+      },
+      // 获取歌曲当前播放的时长
+      updateTime(e) {
+        this.currentTime = e.target.currentTime
+      },
+      // 时长转换
+      format(interval) {
+        interval = interval | 0
+        const minute = interval / 60 | 0
+        const second = this._pad(interval % 60)
+        return `${minute}:${second}`
+      },
+      _pad (num, n = 2) {
+        let len = num.toString().length
+        while (len < n) {
+          num = '0' + num
+          len++
+        }
+        return num
       },
       // 关闭音乐播放器
       back() {
@@ -248,7 +319,8 @@
       ...mapMutations({
         setFullScreen: 'SET_FULL_SCREEN',
         setPlayingState: 'SET_PLAYING_STATE',
-        setCurrentIndex: 'SET_CURRENT_INDEX'
+        setCurrentIndex: 'SET_CURRENT_INDEX',
+        setPlayMode: 'SET_PLAY_MODE'
       })
     },
     watch: {
@@ -256,8 +328,11 @@
         this._getSongUrl()
       },
       playing(newPlaying) {
+        if (!this.songReady) {
+          return
+        }
+        const audio = this.$refs.audio
         this.$nextTick(() => {
-          const audio = this.$refs.audio
           newPlaying ? audio.play() : audio.pause()
         })
       }
